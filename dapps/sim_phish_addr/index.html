@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Smart Contract Claim - Direct Wallet Connection</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        #claimButton {
+            background-color: #4CAF50;
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 18px;
+            margin: 20px 0;
+            transition: background-color 0.3s;
+        }
+        #claimButton:hover {
+            background-color: #45a049;
+        }
+        #claimButton:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .status {
+            margin: 20px 0;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .wallet-info {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            border: 1px solid #dee2e6;
+        }
+        #connectWallet {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 0;
+        }
+        #connectWallet:hover {
+            background-color: #0056b3;
+        }
+
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Smart Contract Claim</h1>
+
+        <div class="wallet-info">
+            <p><strong>Contract Address:</strong> 0xfc3c9556c77CEE1021231505f53D0FFB0708235c</p>
+            <p><strong>Connected Account:</strong> <span id="accountAddress">Not connected</span></p>
+            <p><strong>Network:</strong> <span id="networkName">Unknown</span></p>
+        </div>
+
+
+        <button id="connectWallet">Connect Wallet</button>
+        <br>
+        <button id="claimButton" disabled>Claim</button>
+
+        <div id="status"></div>
+    </div>
+
+    <script src="https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js"></script>
+    <script src="static/js/config.js?v=2"></script>
+    <script>
+
+        let provider;
+        let signer;
+        let contract;
+        let userAccount;
+
+        const connectWalletBtn = document.getElementById('connectWallet');
+        const claimButton = document.getElementById('claimButton');
+        const statusDiv = document.getElementById('status');
+        const accountAddressSpan = document.getElementById('accountAddress');
+        const networkNameSpan = document.getElementById('networkName');
+
+        connectWalletBtn.addEventListener('click', connectWallet);
+        claimButton.addEventListener('click', executeClaim);
+
+        // Direct wallet connection function
+        async function connectWallet() {
+            console.log('Attempting direct wallet connection...');
+
+            if (typeof window.ethereum === 'undefined') {
+                showStatus('No Web3 wallet detected. Please install MetaMask or another Web3 wallet extension.', 'error');
+                return;
+            }
+
+            try {
+                showStatus('Opening wallet connection dialog...', 'info');
+
+                // This will trigger the browser's native wallet selection if multiple wallets are installed
+                const accounts = await window.ethereum.request({
+                    method: 'eth_requestAccounts'
+                });
+
+                console.log('Accounts received:', accounts);
+
+                if (accounts.length === 0) {
+                    showStatus('No accounts found. Please unlock your wallet.', 'error');
+                    return;
+                }
+
+                // Check current network
+                const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+                console.log('Current chain ID:', chainId);
+
+                // Switch to Sepolia if not already on it
+                if (chainId !== CONFIG.SEPOLIA_CHAIN_ID) {
+                    showStatus('Switching to Sepolia testnet...', 'info');
+                    await switchToSepolia(window.ethereum);
+                }
+
+                // Set up ethers.js with the selected provider
+                console.log('Setting up ethers provider...');
+                console.log('ethers object:', typeof ethers);
+
+                provider = new ethers.providers.Web3Provider(window.ethereum);
+                signer = provider.getSigner();
+                userAccount = await signer.getAddress();
+                contract = new ethers.Contract(CONFIG.CONTRACT_ADDRESS, CONFIG.ABI, signer);
+
+                const network = await provider.getNetwork();
+                console.log('Connected to network:', network);
+
+                // Update UI
+                accountAddressSpan.textContent = userAccount;
+                networkNameSpan.textContent = network.name === 'sepolia' ? 'Sepolia Testnet' : `Chain ID: ${network.chainId}`;
+
+                claimButton.disabled = false;
+                connectWalletBtn.textContent = 'Connected';
+                connectWalletBtn.disabled = true;
+
+                // Detect which wallet was actually selected
+                const walletName = detectConnectedWallet(window.ethereum);
+                showStatus(`Successfully connected to ${walletName} on Sepolia testnet!`, 'success');
+
+            } catch (error) {
+                console.error('Error connecting wallet:', error);
+
+                if (error.code === 4001) {
+                    showStatus('User rejected the connection request', 'error');
+                } else if (error.code === -32002) {
+                    showStatus('Connection request already pending. Please check your wallet.', 'error');
+                } else {
+                    showStatus(`Error connecting: ${error.message}`, 'error');
+                }
+            }
+        }
+
+        // Helper function to detect which wallet was connected
+        function detectConnectedWallet(provider) {
+            if (provider.isMetaMask) return 'MetaMask';
+            if (provider.isCoinbaseWallet) return 'Coinbase Wallet';
+            if (provider.isTokenPocket) return 'TokenPocket';
+            if (provider.isTrust) return 'Trust Wallet';
+            if (provider.isRainbow) return 'Rainbow';
+            if (provider.isPhantom) return 'Phantom';
+            if (provider.isBraveWallet) return 'Brave Wallet';
+            if (provider.isOpera) return 'Opera Wallet';
+            if (provider.isBitKeep) return 'BitKeep';
+            if (provider.isFrame) return 'Frame';
+            if (provider.isRabby) return 'Rabby';
+            return 'Web3 Wallet';
+        }
+
+
+        // Simple wallet availability check
+        function checkWalletAvailability() {
+            console.log('Checking wallet availability...');
+            console.log('window.ethereum available:', typeof window.ethereum !== 'undefined');
+
+            if (window.ethereum?.providers && Array.isArray(window.ethereum.providers)) {
+                console.log(`Multiple wallet providers detected: ${window.ethereum.providers.length}`);
+            } else if (window.ethereum) {
+                console.log('Single wallet provider detected');
+            } else {
+                console.log('No wallet providers detected');
+            }
+        }
+
+        async function switchToSepolia(provider = window.ethereum) {
+            try {
+                await provider.request({
+                    method: 'wallet_switchEthereumChain',
+                    params: [{ chainId: CONFIG.SEPOLIA_CHAIN_ID }],
+                });
+            } catch (switchError) {
+                // This error code indicates that the chain has not been added to the wallet
+                if (switchError.code === 4902) {
+                    try {
+                        await provider.request({
+                            method: 'wallet_addEthereumChain',
+                            params: [CONFIG.SEPOLIA_NETWORK],
+                        });
+                    } catch (addError) {
+                        throw new Error('Failed to add Sepolia network to wallet');
+                    }
+                } else {
+                    throw switchError;
+                }
+            }
+        }
+
+
+        async function executeClaim() {
+            if (!contract) {
+                showStatus('Please connect your wallet first!', 'error');
+                return;
+            }
+
+            try {
+                claimButton.disabled = true;
+                claimButton.textContent = 'Processing...';
+                showStatus('Executing claim function...', 'info');
+
+                const tx = await contract.claim();
+                showStatus(`Transaction sent! Hash: ${tx.hash}`, 'info');
+
+                const receipt = await tx.wait();
+                showStatus(`Claim successful! Transaction confirmed in block ${receipt.blockNumber}`, 'success');
+
+            } catch (error) {
+                console.error('Error executing claim:', error);
+                showStatus(`Error executing claim: ${error.message}`, 'error');
+            } finally {
+                claimButton.disabled = false;
+                claimButton.textContent = 'Claim';
+            }
+        }
+
+        function showStatus(message, type) {
+            statusDiv.innerHTML = `<div class="status ${type}">${message}</div>`;
+        }
+
+        // Auto-connect if wallet is already connected
+        window.addEventListener('load', async () => {
+            console.log('=== NEW VERSION LOADED ===');
+            console.log('Page loaded, checking for wallet...');
+
+            // Wait a bit for extensions to load
+            setTimeout(() => {
+                checkWalletAvailability();
+
+                if (typeof window.ethereum !== 'undefined') {
+                    showStatus('Web3 wallet detected. Click "Connect Wallet" for native wallet selection.', 'info');
+
+                    // Check for existing connection
+                    window.ethereum.request({ method: 'eth_accounts' })
+                        .then(accounts => {
+                            if (accounts.length > 0) {
+                                console.log('Found existing connection, auto-connecting...');
+                                connectWallet();
+                            }
+                        })
+                        .catch(error => {
+                            console.log('Error checking existing connection:', error);
+                        });
+                } else {
+                    showStatus('No Web3 wallet detected. Please install MetaMask or another wallet extension.', 'error');
+                }
+            }, 500); // Wait 0.5 seconds for extensions to initialize
+        });
+
+        // Listen for account changes
+        if (typeof window.ethereum !== 'undefined') {
+            window.ethereum.on('accountsChanged', (accounts) => {
+                if (accounts.length === 0) {
+                    // User disconnected wallet
+                    location.reload();
+                } else {
+                    // User switched account
+                    location.reload();
+                }
+            });
+
+            window.ethereum.on('chainChanged', () => {
+                // Reload page when chain changes
+                location.reload();
+            });
+        }
+    </script>
+</body>
+</html>

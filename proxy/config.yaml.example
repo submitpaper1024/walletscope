@@ -1,0 +1,31 @@
+# Claude API Configuration
+# API key lives in .env (ANTHROPIC_API_KEY) — not in this file.
+claude:
+  model: "claude-sonnet-4-5-20250929"  # or claude-3-5-sonnet-20241022
+  max_tokens: 4096
+  temperature: 0.0
+
+# Ethereum Mainnet Chain ID
+ethereum:
+  mainnet_chain_id: "0x1"  # Ethereum mainnet
+  chain_ids:
+    - "0x1"   # Ethereum mainnet (hex)
+    - "1"     # Ethereum mainnet (decimal)
+
+# Analysis settings
+analysis:
+  batch_size: 50  # Number of requests to analyze in one batch
+  min_requests_for_analysis: 10  # Minimum requests before triggering Claude analysis
+
+# Target wallet features to identify
+features:
+  - name: "token_price"
+    description: "Token price API - getting current prices of tokens/cryptocurrencies"
+  - name: "tx_history"
+    description: "Transaction history feed - retrieving past transactions for an address"
+  - name: "recipient_verification"
+    description: "Recipient verification - checking/validating recipient address before transfer"
+  - name: "rpc_relay"
+    description: "RPC relay for submitting transactions - sending signed transactions to blockchain"
+  - name: "simulation"
+    description: "Transaction simulation - simulating tx execution before actual submission or dapp interaction"

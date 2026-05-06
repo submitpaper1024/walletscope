@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>claim()</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body>
+  <h2>Web3 Contract Call Demo</h2>
+  <button id="connectBtn">Connect Wallet</button>
+  <button id="claimBtn" disabled>Call claim()</button>
+  <pre id="log"></pre>
+
+  <!-- ESM shim: import the local ethers.min.js and attach to window.ethers -->
+  <script type="module">
+    import * as ethersNs from './ethers.min.js';
+    window.ethers = ethersNs;
+    // Optional: console.log('ethers keys:', Object.keys(ethersNs));
+  </script>
+
+  <!-- Business script (non-module so it can use window.ethers directly) -->
+  <script>
+    const log = (m) => document.getElementById('log').textContent += m + '\n';
+
+    const contractAddress = "0x000008e4e9597890e93F60B4D8DD3610e1700000";
+    const ABI = [
+      { "inputs": [], "stateMutability": "nonpayable", "type": "constructor" },
+      {"inputs":[{"internalType":"address","name":"_user","type":"address"}],"name":"add","outputs":[],"stateMutability":"nonpayable","type":"function"},
+      {"inputs":[],"name":"badAddress","outputs":[{"internalType":"address payable","name":"","type":"address"}],"stateMutability":"view","type":"function"},
+      {"inputs":[],"name":"bk","outputs":[{"internalType":"address[]","name":"","type":"address[]"}],"stateMutability":"view","type":"function"},
+      {"inputs":[],"name":"claim","outputs":[],"stateMutability":"payable","type":"function"},
+      {"inputs":[{"internalType":"address","name":"_user","type":"address"}],"name":"inBL","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},
+      {"inputs":[],"name":"owner","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},
+      {"inputs":[],"name":"pay","outputs":[],"stateMutability":"payable","type":"function"},
+      {"inputs":[{"internalType":"address payable","name":"_myAddress","type":"address"}],"name":"setBA","outputs":[],"stateMutability":"nonpayable","type":"function"},
+      { "stateMutability":"payable","type":"receive" }
+    ];
+
+    const TARGET_CHAIN_ID = 1;       // Ethereum mainnet
+    const OPTIONAL_VALUE_ETH = "0";  // whether claim() needs ETH transfer
+
+    function pickEthereumProvider() {
+      const eth = window.ethereum;
+      if (!eth) return null;
+      if (eth.providers?.length) {
+        const mm = eth.providers.find(p => p.isMetaMask);
+        return mm || eth.providers[0];
+      }
+      return eth;
+    }
+
+    async function ensureChain(eth, chainIdDecimal) {
+      const chainIdHex = '0x' + chainIdDecimal.toString(16);
+      await eth.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: chainIdHex }]
+      });
+    }
+
+    function waitForEthereum(timeout = 1500) {
+      return new Promise((resolve) => {
+        if (window.ethereum) return resolve(pickEthereumProvider());
+        window.addEventListener('ethereum#initialized', () => resolve(pickEthereumProvider()), { once: true });
+        setTimeout(() => resolve(pickEthereumProvider()), timeout);
+      });
+    }
+
+    let provider, signer, contract;
+
+    document.getElementById('connectBtn').onclick = async () => {
+      try {
+        const eth = await waitForEthereum();
+        if (!eth) {
+          log('No wallet detected. Open the page over http:// and install MetaMask.');
+          return;
+        }
+        await eth.request({ method: 'eth_requestAccounts' });
+        try { await ensureChain(eth, TARGET_CHAIN_ID); } catch(e){ log('Network switch hint: ' + (e.message||e)); }
+
+        const { BrowserProvider, Contract } = window.ethers;   // available now
+        provider = new BrowserProvider(eth, 'any');
+        signer = await provider.getSigner();
+        const addr = await signer.getAddress();
+        log('Connected address: ' + addr);
+
+        contract = new Contract(contractAddress, ABI, signer);
+        document.getElementById('claimBtn').disabled = false;
+        log('Ready to call claim()');
+      } catch (err) {
+        console.error(err);
+        log('Connection failed: ' + (err.message || err));
+      }
+    };
+
+    document.getElementById('claimBtn').onclick = async () => {
+      if (!contract) return;
+      try {
+        const { parseEther } = window.ethers;
+        const valueWei = parseEther(OPTIONAL_VALUE_ETH);
+        log('Sending transaction...');
+        const tx = await contract.claim({ value: valueWei });
+        log('Submitted: ' + tx.hash);
+        const receipt = await tx.wait();
+        log('Confirmed, block: ' + receipt.blockNumber + ' status: ' + receipt.status);
+      } catch (err) {
+        console.error(err);
+        log('Call failed: ' + (err.info?.error?.message || err.message || err));
+      }
+    };
+  </script>
+</body>
+</html>

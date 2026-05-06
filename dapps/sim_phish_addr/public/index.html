@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Contract Claim DApp</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+</head>
+<body>
+    <div class="container">
+        <h1>Smart Contract Claim DApp</h1>
+
+        <div class="wallet-info">
+            <p><strong>Contract Address:</strong> <span class="contract-address">0xfc3c9556c77CEE1021231505f53D0FFB0708235c</span></p>
+            <p><strong>Connected Account:</strong> <span id="accountAddress">Not connected</span></p>
+            <p><strong>Network:</strong> <span id="networkName">Unknown</span></p>
+        </div>
+
+        <div id="walletSelection" class="wallet-selection">
+            <h3>Select Your Wallet</h3>
+            <div id="walletOptions" class="wallet-options"></div>
+            <button id="cancelSelection" class="btn btn-secondary">Cancel</button>
+        </div>
+
+        <div class="action-buttons">
+            <button id="connectWallet" class="btn btn-primary">Connect Wallet</button>
+            <button id="forceSelection" class="btn" style="background: #6c757d; color: white; font-size: 14px; padding: 10px 20px;">Choose Wallet</button>
+            <button id="claimButton" class="btn btn-success" disabled>Claim</button>
+        </div>
+
+        <div id="status"></div>
+    </div>
+
+    <script src="https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js"></script>
+    <script src="/static/js/config.js"></script>
+    <script src="/static/js/wallet.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

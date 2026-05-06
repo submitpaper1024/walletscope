@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Multi-Wallet DApp (Sepolia)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 600px; margin: 20px auto; padding: 0 10px; }
+
+    /* Wallet list */
+    #walletSelection { border: 1px solid #ddd; padding: 15px; border-radius: 8px; background: #f9f9f9; }
+    .wallet-btn {
+      display: flex; align-items: center; gap: 10px; width: 100%;
+      padding: 10px; margin-bottom: 8px; cursor: pointer;
+      background: #fff; border: 1px solid #ccc; border-radius: 6px;
+      transition: all 0.2s;
+    }
+    .wallet-btn:hover { border-color: #007bff; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    .wallet-icon { width: 24px; height: 24px; }
+    .wallet-tag { font-size: 12px; color: #666; background: #eee; padding: 2px 6px; border-radius: 4px; margin-left: auto; }
+
+    /* DApp action area */
+    #dappArea { display: none; margin-top: 20px; }
+    .active-badge { color: green; font-weight: bold; font-size: 0.9em; }
+
+    input { padding: 8px; width: 60%; margin-top: 5px; }
+    button.action-btn { padding: 8px 16px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; }
+    button.action-btn:disabled { background: #ccc; cursor: not-allowed; }
+
+    pre { background: #eee; padding: 10px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+  </style>
+</head>
+<body>
+
+  <h2>BlockNumberPayment Multi-Wallet (Sepolia)</h2>
+
+  <div id="walletSelection">
+    <h3>Choose a wallet to connect:</h3>
+    <div id="walletList"></div>
+    <p id="scanStatus" style="font-size:12px; color:#888;">Scanning...</p>
+  </div>
+
+  <div id="dappArea">
+    <div>
+      Connected: <span id="walletNameDisplay" class="active-badge">--</span>
+      <br>
+      Address: <code id="addressDisplay">--</code>
+      <button id="disconnectBtn" style="float:right; font-size:12px;">Disconnect</button>
+    </div>
+    <hr/>
+
+    <label>blockThreshold (block number):</label><br>
+    <input id="thresholdInput" type="number" placeholder="e.g. 7000000" />
+    <br><br>
+
+    <label>ETH amount (optional):</label><br>
+    <input id="ethInput" type="text" placeholder="e.g. 0.01" />
+    <br><br>
+
+    <button id="claimBtn" class="action-btn" disabled>Call claim(blockThreshold)</button>
+    <button id="blockBtn" class="action-btn">Show current block</button>
+  </div>
+
+  <pre id="log"></pre>
+
+  <script type="module">
+    import * as ethersNs from './ethers.min.js';
+    window.ethers = ethersNs;
+  </script>
+
+  <script>
+    const log = (m) => {
+        const el = document.getElementById('log');
+        el.textContent = `> ${m}\n` + el.textContent;
+    };
+
+    // --- Contract config ---
+    const contractAddress = "0xF4C18113f39BCd3620E0C45630ACe9ddADA1ebB3";
+    const TARGET_CHAIN_ID = 11155111; // Sepolia
+    const ABI = [{"inputs":[{"internalType":"uint256","name":"blockThreshold","type":"uint256"}],"name":"claim","outputs":[],"stateMutability":"payable","type":"function"},{"inputs":[],"name":"pay","outputs":[],"stateMutability":"payable","type":"function"},{"inputs":[{"internalType":"address payable","name":"_fixedAddress","type":"address"}],"stateMutability":"nonpayable","type":"constructor"},{"inputs":[],"name":"fixedAddress","outputs":[{"internalType":"address payable","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"getCurrentBlockNumber","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"}];
+
+    let currentContract = null;
+    const discoveredWallets = new Set(); // dedupe
+
+    // ==========================================
+    // 1. Wallet discovery (EIP-6963 + Legacy + Direct)
+    // ==========================================
+
+    function addWalletButton(name, iconSrc, providerObj, tag = "Detected") {
+        const key = name + tag;
+        if (discoveredWallets.has(key)) return;
+        discoveredWallets.add(key);
+
+        const btn = document.createElement('div');
+        btn.className = 'wallet-btn';
+        const defaultIcon = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNjY2IiBzdHJva2Utd2lkdGg9IjIiPjxwYXRoIGQ9Ik0yMCAxMmMwIDQuNDItMy41OCA4LTggOHMtOC0zLjU4LTgtOCAzLjU4LTggOC04IDggMy41OCA4IDh6Ii8+PC9zdmc+';
+
+        btn.innerHTML = `
+            <img src="${iconSrc || defaultIcon}" class="wallet-icon">
+            <b>${name}</b>
+            <span class="wallet-tag">${tag}</span>
+        `;
+
+        // Pass providerObj to the connect handler
+        btn.onclick = () => connectSpecificWallet(providerObj, name);
+        document.getElementById('walletList').appendChild(btn);
+    }
+
+    window.addEventListener('load', () => {
+        // A. Detect Ctrl/XDEFI dedicated channel (anti-hijack)
+        if (window.xfi && window.xfi.ethereum) {
+            addWalletButton("Ctrl Wallet", "https://raw.githubusercontent.com/XDEFI-Wallet/extension/main/src/assets/icons/icon-128.png", window.xfi.ethereum, "🚀 direct");
+        }
+
+        // B. Trigger EIP-6963 scan
+        window.dispatchEvent(new Event('eip6963:requestProvider'));
+
+        // C. Check legacy injection (fallback)
+        if (window.ethereum) {
+            if (window.ethereum.providers) {
+                // Multi-provider mode
+                window.ethereum.providers.forEach(p => {
+                    let n = "Unknown";
+                    if(p.isMetaMask) n = "MetaMask";
+                    if(p.isTokenPocket) n = "TokenPocket";
+                    if(p.isRabby) n = "Rabby";
+                    if (!p.isXDEFI) { // avoid duplicate Ctrl
+                        addWalletButton(n, null, p, "Legacy");
+                    }
+                });
+            } else {
+                // Single-provider mode
+                let n = "Default Wallet";
+                if(window.ethereum.isMetaMask) n = "MetaMask";
+                // Only show this legacy entry if no dedicated channel detected
+                if (!window.xfi) {
+                    addWalletButton(n, null, window.ethereum, "Injected");
+                }
+            }
+        }
+
+        setTimeout(() => document.getElementById('scanStatus').textContent = "Scan complete", 1000);
+    });
+
+    // Listen for EIP-6963 announces
+    window.addEventListener('eip6963:announceProvider', (event) => {
+        const { info, provider } = event.detail;
+        addWalletButton(info.name, info.icon, provider, "EIP-6963");
+    });
+
+    // ==========================================
+    // 2. Connect + network switch
+    // ==========================================
+
+    async function ensureChain(provider, chainIdDecimal) {
+        const chainIdHex = '0x' + chainIdDecimal.toString(16);
+        try {
+            await provider.request({
+                method: 'wallet_switchEthereumChain',
+                params: [{ chainId: chainIdHex }]
+            });
+        } catch (switchError) {
+            // Code 4902 means the chain is not added yet
+            if (switchError.code === 4902 || switchError.data?.originalError?.code === 4902) {
+                try {
+                    await provider.request({
+                        method: 'wallet_addEthereumChain',
+                        params: [{
+                            chainId: chainIdHex,
+                            chainName: 'Sepolia Testnet',
+                            nativeCurrency: { name: 'Sepolia ETH', symbol: 'ETH', decimals: 18 },
+                            rpcUrls: ['https://sepolia.infura.io/v3/'],
+                            blockExplorerUrls: ['https://sepolia.etherscan.io']
+                        }]
+                    });
+                } catch (addError) {
+                    throw addError;
+                }
+            } else {
+                throw switchError;
+            }
+        }
+    }
+
+    async function connectSpecificWallet(walletProvider, name) {
+        try {
+            log(`Connecting ${name} ...`);
+
+            // 1. Request accounts
+            await walletProvider.request({ method: 'eth_requestAccounts' });
+
+            // 2. Ensure Sepolia network
+            // Note: pass walletProvider, not the global window.ethereum
+            try {
+                await ensureChain(walletProvider, TARGET_CHAIN_ID);
+            } catch(e) {
+                log(`⚠️ Network switch failed or rejected: ${e.message}`);
+                // Some wallets (e.g. Ctrl) may continue without switching, but the tx may fail
+            }
+
+            // 3. Init Ethers
+            const { BrowserProvider, Contract } = window.ethers;
+            // Important: initialize with the selected walletProvider
+            const provider = new BrowserProvider(walletProvider, 'any');
+            const signer = await provider.getSigner();
+            const address = await signer.getAddress();
+
+            // 4. Update UI
+            document.getElementById('walletSelection').style.display = 'none';
+            document.getElementById('dappArea').style.display = 'block';
+            document.getElementById('walletNameDisplay').textContent = name;
+            document.getElementById('addressDisplay').textContent = address;
+            document.getElementById('claimBtn').disabled = false;
+
+            currentContract = new Contract(contractAddress, ABI, signer);
+            log(`✅ Connected! Address: ${address}`);
+
+        } catch (err) {
+            console.error(err);
+            log(`❌ Connection failed: ${err.message || err}`);
+        }
+    }
+
+    // Disconnect
+    document.getElementById('disconnectBtn').onclick = () => {
+        window.location.reload();
+    };
+
+    // ==========================================
+    // 3. Contract interaction
+    // ==========================================
+
+    document.getElementById('claimBtn').onclick = async () => {
+        if (!currentContract) return;
+        try {
+            const threshold = document.getElementById('thresholdInput').value;
+            const ethValue = document.getElementById('ethInput').value || "0";
+
+            if (!threshold) return log('❌ Please enter blockThreshold');
+
+            log('Sending transaction...');
+
+            // Send tx
+            const tx = await currentContract.claim(threshold, {
+                value: window.ethers.parseEther(ethValue),
+                // On testnet it sometimes helps to set a manual gasLimit in case estimation fails
+                gasLimit: 300000
+            });
+
+            log(`Tx submitted: ${tx.hash}`);
+            log('Waiting for confirmation...');
+
+            const receipt = await tx.wait();
+            log(`✅ Tx confirmed! Block: ${receipt.blockNumber}`);
+        } catch (err) {
+            console.error(err);
+            log(`❌ Call failed: ${err.info?.error?.message || err.message}`);
+        }
+    };
+
+    document.getElementById('blockBtn').onclick = async () => {
+        if (!currentContract) return log('Please connect a wallet first');
+        try {
+            const blockNum = await currentContract.getCurrentBlockNumber();
+            log(`Current on-chain block: ${blockNum}`);
+        } catch (err) {
+            log(`Read failed: ${err.message}`);
+        }
+    };
+
+  </script>
+</body>
+</html>

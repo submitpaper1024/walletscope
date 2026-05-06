@@ -1,0 +1,65 @@
+rules:
+  # 1. Generic JSON-RPC rules driven by the built-in semantic detectors
+  #    (works across wallets).
+
+  - name: "submit_tx_semantic"
+    tag: "submit_tx"
+    when:
+      is_jsonrpc: true
+      semantic: "submit_tx"
+
+  - name: "simulation_semantic"
+    tag: "simulation"
+    when:
+      is_jsonrpc: true
+      semantic: "simulation"
+
+  - name: "tx_history_semantic"
+    tag: "tx_history"
+    when:
+      is_jsonrpc: true
+      semantic: "tx_history"
+
+  - name: "address_check_semantic"
+    tag: "address_check"
+    when:
+      is_jsonrpc: true
+      semantic: "address_check"
+
+  # 2. Generic REST price API: semantic=token_price uses URL/body keywords.
+
+  - name: "token_price_rest_semantic"
+    tag: "token_price"
+    when:
+      is_jsonrpc: false
+      semantic: "token_price"
+
+  # 3. Example: Alchemy asset-transfer history (matched even when the
+  #    generic semantic detector didn't fire).
+
+  - name: "alchemy_asset_transfers"
+    tag: "tx_history"
+    when:
+      is_jsonrpc: true
+      method_in:
+        - "alchemy_getAssetTransfers"
+
+  # 4. Example: tag everything from a specific host as token_price.
+
+  # - name: "my_price_api_host"
+  #   tag: "token_price"
+  #   when:
+  #     is_jsonrpc: false
+  #     host_equals_any:
+  #       - "api.myprice.com"
+
+  # 5. Example: REST-style address history query (address in URL +
+  #    'transactions' in path).
+
+  # - name: "rest_tx_history_by_path"
+  #   tag: "tx_history"
+  #   when:
+  #     is_jsonrpc: false
+  #     contains_address_in_url: true
+  #     path_contains_any:
+  #       - "transactions"

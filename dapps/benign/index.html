@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Multi-Wallet Selector Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 20px auto; padding: 0 10px; }
+    button { cursor: pointer; padding: 8px 16px; margin: 5px; }
+
+    /* Wallet list */
+    #walletList { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+    .wallet-btn {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px; border: 1px solid #ccc; background: #f9f9f9; width: 100%; text-align: left;
+    }
+    .wallet-btn:hover { background: #eee; }
+    .wallet-icon { width: 24px; height: 24px; }
+
+    /* Region show/hide */
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body autocomplete="off">
+
+  <h2>Web3 Multi-Wallet Connect Demo</h2>
+
+  <div id="walletSelection">
+    <p>Choose a wallet to connect:</p>
+    <div id="walletList"></div>
+    <p id="scanStatus" style="color: #666; font-size: 0.9em;">Scanning for wallets...</p>
+  </div>
+
+  <div id="appArea" class="hidden">
+    <div>
+      <strong>Connected:</strong> <span id="connectedWalletName">Unknown</span>
+      <button id="disconnectBtn" style="float:right">Disconnect</button>
+    </div>
+    <hr/>
+    <p>Address: <code id="userAddress"></code></p>
+    <button id="claimBtn" disabled>Call claim()</button>
+  </div>
+
+  <pre id="log" style="background:#eee; padding:10px; margin-top:20px; white-space: pre-wrap; word-break: break-all;"></pre>
+
+  <script type="module">
+    import * as ethersNs from './ethers.min.js';
+    window.ethers = ethersNs;
+  </script>
+
+  <script>
+    const log = (m) => document.getElementById('log').textContent += `[${new Date().toLocaleTimeString()}] ${m}\n`;
+
+    // Contract config
+    const contractAddress = "0x0000D9805750D86bEE7bF1874A14C29f9fFD0000";
+    const ABI = [{"inputs":[],"name":"claim","outputs":[],"stateMutability":"payable","type":"function"}];
+    const TARGET_CHAIN_ID = 1;
+
+    let currentProvider = null; // currently selected provider
+    let currentContract = null;
+
+    // Track discovered wallets to prevent duplicates
+    const discoveredWallets = new Set();
+
+    // ===========================
+    // 1. Wallet discovery
+    // ===========================
+
+    // Render a wallet button
+    function addWalletButton(name, iconSrc, providerObj) {
+      if (discoveredWallets.has(name)) return; // dedupe
+      discoveredWallets.add(name);
+
+      const btn = document.createElement('button');
+      btn.className = 'wallet-btn';
+      // Use a placeholder when no icon is provided
+      const imgTag = iconSrc ? `<img src="${iconSrc}" class="wallet-icon" />` : '<span>🔌</span>';
+      btn.innerHTML = `${imgTag} <b>${name}</b>`;
+
+      btn.onclick = () => connectSpecificWallet(providerObj, name);
+      document.getElementById('walletList').appendChild(btn);
+    }
+
+    // A. Listen for EIP-6963 (MetaMask, Zerion, OKX, Rainbow, etc.)
+    window.addEventListener('eip6963:announceProvider', (event) => {
+      const { info, provider } = event.detail;
+      addWalletButton(info.name, info.icon, provider);
+    });
+
+    // B. Check legacy injection (window.ethereum)
+    function checkLegacyProviders() {
+      const eth = window.ethereum;
+      if (!eth) return;
+
+      // Multi-provider mode (multiple legacy extensions installed)
+      if (eth.providers && eth.providers.length) {
+        eth.providers.forEach(p => {
+          let name = "Unknown Wallet";
+          if (p.isMetaMask) name = "MetaMask (Legacy)";
+          if (p.isTrust) name = "Trust Wallet";
+          if (p.isCoinbaseWallet) name = "Coinbase";
+          // EIP-6963 usually covers these; legacy is a fallback
+          addWalletButton(name, null, p);
+        });
+      } else {
+        // Single-provider mode
+        let name = "Default Wallet";
+        if (eth.isMetaMask) name = "MetaMask";
+        if (eth.isRabby) name = "Rabby";
+        addWalletButton(name, null, eth);
+      }
+    }
+
+    // Initial scan
+    window.addEventListener('load', () => {
+      // 1. Trigger EIP-6963 request
+      window.dispatchEvent(new Event('eip6963:requestProvider'));
+
+      // 2. Check legacy injection
+      checkLegacyProviders();
+
+      setTimeout(() => {
+        document.getElementById('scanStatus').textContent = "Scan complete (if no wallet appears, refresh the page or check your extensions)";
+      }, 1000);
+    });
+
+    // ===========================
+    // 2. Connect + business logic
+    // ===========================
+
+    async function connectSpecificWallet(walletProvider, walletName) {
+      try {
+        log(`Connecting: ${walletName}...`);
+
+        // Request authorization through the selected provider
+        await walletProvider.request({ method: 'eth_requestAccounts' });
+
+        // Network switch
+        const chainIdHex = '0x' + TARGET_CHAIN_ID.toString(16);
+        try {
+          await walletProvider.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: chainIdHex }]
+          });
+        } catch (e) {
+          log(`Network switch hint: ${e.message || e}`);
+        }
+
+        // Init Ethers
+        // Note: pass the selected walletProvider into BrowserProvider, not the global window.ethereum
+        const { BrowserProvider, Contract } = window.ethers;
+        const provider = new BrowserProvider(walletProvider, 'any');
+        const signer = await provider.getSigner();
+        const address = await signer.getAddress();
+
+        // UI update
+        document.getElementById('walletSelection').classList.add('hidden');
+        document.getElementById('appArea').classList.remove('hidden');
+        document.getElementById('connectedWalletName').textContent = walletName;
+        document.getElementById('userAddress').textContent = address;
+        document.getElementById('claimBtn').disabled = false;
+
+        // Cache global reference
+        currentContract = new Contract(contractAddress, ABI, signer);
+        log(`Connected account: ${address}`);
+
+      } catch (err) {
+        console.error(err);
+        log(`Connection failed: ${err.message || err}`);
+      }
+    }
+
+    // Disconnect button
+    document.getElementById('disconnectBtn').onclick = () => {
+      window.location.reload();
+    };
+
+    // Claim button
+    document.getElementById('claimBtn').onclick = async () => {
+      if (!currentContract) return;
+      try {
+        log('Sending transaction...');
+        // Set gas limit
+        const tx = await currentContract.claim({ gasLimit: 5500000 });
+        log(`Tx sent: ${tx.hash}`);
+        const receipt = await tx.wait();
+        log(`Tx confirmed! Block: ${receipt.blockNumber}`);
+      } catch (err) {
+        console.error(err);
+        log(`Call failed: ${err.message || err}`);
+      }
+    };
+  </script>
+</body>
+</html>
