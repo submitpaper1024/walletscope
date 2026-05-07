@@ -215,28 +215,8 @@ key is never read from there.
 
 ## 5. Running the pipeline
 
-### 5.1 List available scenarios and wallets
 
-```bash
-python -m walletscope scenarios
-```
-
-Currently mapped:
-
-| Scenario | DApp |  
-|---|---|
-| `benign`              | `walletscope/dapps/benign`           | 
-| `A2_sim_phish_block`  | `walletscope/dapps/sim_phish_block`  | 
-| `A2_sim_phish_addr`   | `walletscope/dapps/sim_phish_addr`   | 
-| `A1_drain`            | —                        | 
-| `A3_addr_poison`      | —                        | 
-| `recipient_verify`    | —                        | 
-
-Wallet flows (registered in `walletscope/driver/flows.py`):
-`backpack`, `core`, `ctrl`, `metamask`, `nest`, `nufi`, `onekey`,
-`phantom`, `pontem`, `rabby`, `tokenpocket`, `zerion`.
-
-### 5.2 Drive a single scenario (Phase 1 + 2 only — no traffic capture)
+### 5.1 Drive a single scenario (Phase 1 + 2 only — no traffic capture)
 
 ```bash
 python -m walletscope drive metamask benign
@@ -255,7 +235,7 @@ Effect, in order:
    frontmost app — the focus guard refuses otherwise).
 7. Captures the wallet popup HTML to `walletscope/data/page_sources/<Wallet>_pagesource.txt`.
 
-### 5.3 Full pipeline (Phase 1 + 2 + 3 + 4)
+### 5.2 Full pipeline (Phase 1 + 2 + 3 + 4)
 
 ```bash
 # Shell A — start mitmproxy with the WalletScope addon
@@ -281,7 +261,7 @@ python -m walletscope addon
 # WALLETSCOPE_SCENARIO=<scenario> mitmdump -p 8081 -s .../walletscope/proxy/addon.py
 ```
 
-### 5.4 Switch scenario without restarting the proxy
+### 5.3 Switch scenario without restarting the proxy
 
 A single long-running `mitmdump` can cover the full matrix:
 
@@ -296,7 +276,7 @@ WALLETSCOPE_USE_PROXY=1 python -m walletscope drive metamask A2_sim_phish_block
 The orchestrator already does this for you when running
 `python -m walletscope drive ...`.
 
-### 5.5 Free-rider key probe
+### 5.4 Free-rider key probe
 
 The analyzer can verify whether leaked third-party API keys are
 exploitable from outside the wallet:
@@ -313,7 +293,7 @@ The probe is also available standalone:
 python walletscope/proxy/api_keys.py walletscope/data/captures/metamask__benign.jsonl --probe
 ```
 
-### 5.6 Skip Claude
+### 5.5 Skip Claude
 
 The rule-based classifier and free-rider probe work without Claude:
 
